@@ -1,0 +1,189 @@
+/* ================= GLOBAL ================= */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: 'Poppins', sans-serif;
+}
+
+body {
+  background: linear-gradient(135deg, #4f46e5, #9333ea);
+  min-height: 100vh;
+}
+
+/* ================= AUTH PAGES ================= */
+.auth-container {
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.auth-card {
+  background: #ffffff;
+  padding: 2rem;
+  border-radius: 18px;
+  width: 360px;
+  box-shadow: 0 15px 40px rgba(0,0,0,0.2);
+  text-align: center;
+}
+
+.auth-card h2 {
+  margin-bottom: 1.5rem;
+  color: #333;
+}
+
+/* Inputs */
+.form-group {
+  margin-bottom: 1rem;
+  text-align: left;
+}
+
+.form-group label {
+  font-size: 14px;
+  color: #555;
+  display: block;
+  margin-bottom: 5px;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid #ccc;
+  transition: 0.3s;
+}
+
+.form-group input:focus {
+  border-color: #4f46e5;
+  outline: none;
+  box-shadow: 0 0 6px rgba(79,70,229,0.5);
+}
+
+/* Button */
+.primary-btn {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  background: #4f46e5;
+  color: #fff;
+  font-size: 16px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.primary-btn:hover {
+  background: #4338ca;
+}
+
+/* Links */
+.auth-link {
+  margin-top: 10px;
+  font-size: 14px;
+  color: #4f46e5;
+  cursor: pointer;
+}
+
+.auth-link:hover {
+  text-decoration: underline;
+}
+
+/* ================= DASHBOARD ================= */
+.dashboard {
+  padding: 2rem;
+  color: #fff;
+}
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.dashboard h1 {
+  font-size: 24px;
+}
+
+.logout-btn {
+  background: #ef4444;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 10px;
+  color: white;
+  cursor: pointer;
+}
+
+.logout-btn:hover {
+  background: #dc2626;
+}
+
+/* Meeting Card */
+.meeting-card {
+  background: #fff;
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border-radius: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #333;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+}
+
+.meeting-card span {
+  font-weight: 500;
+}
+
+/* ================= MEETING ROOM ================= */
+.meeting-room {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #111827;
+}
+
+.video-section {
+  flex: 1;
+  display: flex;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+/* Video box */
+.video-box {
+  flex: 1;
+  background: black;
+  border-radius: 12px;
+}
+
+/* Controls */
+.controls {
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+  padding: 1rem;
+  background: #1f2937;
+}
+
+.control-btn {
+  padding: 12px 18px;
+  border-radius: 50px;
+  border: none;
+  cursor: pointer;
+  background: #4f46e5;
+  color: white;
+  transition: 0.3s;
+}
+
+.control-btn:hover {
+  background: #4338ca;
+}
+
+.leave-btn {
+  background: #ef4444;
+}
+
+.leave-btn:hover {
+  background: #dc2626;
+}

@@ -1,0 +1,26 @@
+services:
+  frontend:
+    build: ./client2
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+  backend:
+    build: ./server
+    ports:
+      - "5000:5000"
+    depends_on:
+      - mongo
+      - redis
+  mongo:
+    image: mongo:7.0
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodata:/data/db
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+volumes:
+  mongodata:

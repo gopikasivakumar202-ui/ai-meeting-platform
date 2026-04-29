@@ -1,0 +1,10 @@
+{
+  "name": "ai-meeting-platform",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --parallel -r dev",
+    "build": "pnpm --parallel -r build",
+    "test": "pnpm --parallel -r test"
+  }
+}
