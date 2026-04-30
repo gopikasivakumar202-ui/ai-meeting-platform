@@ -16,12 +16,25 @@ const setupWebRTC = require('./Sockets/webrtc');
 const app = express();
 const server = http.createServer(app);
 
+// ─── Allowed origins (http AND https for local dev) ───────────────────────────
+const ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  'https://localhost:5173',
+  'http://localhost:5174',
+  'https://localhost:5174',   // ← fixes the CORS error (basicSsl uses https)
+  process.env.CLIENT_URL,
+].filter(Boolean);
+
 (async () => {
 
   // ─── REDIS ──────────────────────────────────────────────
-  const redisClient = createClient({
-    url: process.env.REDIS_URL || 'redis://localhost:6379'
-  });
+const redisClient = createClient({
+  url: process.env.REDIS_URL || 'redis://localhost:6379',
+  socket: {
+    tls: process.env.REDIS_URL?.startsWith('rediss://'),
+    rejectUnauthorized: false
+  }
+});
   redisClient.on('error', err => console.error('❌ Redis error:', err));
   await redisClient.connect();
   console.log('✅ Redis connected');
@@ -41,7 +54,7 @@ const server = http.createServer(app);
 
   // ─── CORS ────────────────────────────────────────────────
   app.use(cors({
-    origin: ['http://localhost:5173', 'http://localhost:5174', process.env.CLIENT_URL],
+    origin: ALLOWED_ORIGINS,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
@@ -66,11 +79,12 @@ const server = http.createServer(app);
   // ─── SOCKET.IO ───────────────────────────────────────────
   const io = new Server(server, {
     cors: {
-      origin: ['http://localhost:5173', 'http://localhost:5174'],
-      methods: ['GET', 'POST']
+      origin: ALLOWED_ORIGINS,   // ← also fixed here for Socket.IO
+      methods: ['GET', 'POST'],
+      credentials: true,
     }
   });
-  setupWebRTC(io, redisClient);   // pass redis into socket handler
+  setupWebRTC(io, redisClient);
 
   // ─── MONGODB ─────────────────────────────────────────────
   mongoose.connect(process.env.MONGO_URI)
