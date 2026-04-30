@@ -25,76 +25,83 @@ const ALLOWED_ORIGINS = [
 ].filter(Boolean);
 
 (async () => {
+  try {
 
-  // ─── REDIS ──────────────────────────────────────────────
-  const redisClient = createClient({
-    url: process.env.REDIS_URL || 'redis://localhost:6379',
-    socket: {
-      tls: process.env.REDIS_URL?.startsWith('rediss://'),
-      rejectUnauthorized: false
-    }
-  });
-  redisClient.on('error', err => console.error('❌ Redis error:', err));
-  await redisClient.connect();
-  console.log('✅ Redis connected');
+    // ─── REDIS ──────────────────────────────────────────────
+    const redisClient = createClient({
+      url: process.env.REDIS_URL || 'redis://localhost:6379',
+      socket: {
+        tls: process.env.REDIS_URL?.startsWith('rediss://'),
+        rejectUnauthorized: false
+      }
+    });
+    redisClient.on('error', err => console.error('❌ Redis error:', err));
+    await redisClient.connect();
+    console.log('✅ Redis connected');
 
-  // ─── SESSION WITH REDIS STORE ───────────────────────────
-  app.use(session({
-    store: new RedisStore({ client: redisClient }),
-    secret: process.env.SESSION_SECRET || 'intellimeet_secret',
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      secure: process.env.NODE_ENV === 'production',
-      httpOnly: true,
-      maxAge: 1000 * 60 * 60 * 24
-    }
-  }));
+    // ─── MONGODB ─────────────────────────────────────────────
+    await mongoose.connect(process.env.MONGO_URI);
+    console.log('✅ MongoDB connected');
 
-  // ─── CORS ────────────────────────────────────────────────
-  app.use(cors({
-    origin: ALLOWED_ORIGINS,
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-  }));
+    // ─── SESSION WITH REDIS STORE ───────────────────────────
+    app.use(session({
+      store: new RedisStore({ client: redisClient }),
+      secret: process.env.SESSION_SECRET || 'intellimeet_secret',
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        secure: process.env.NODE_ENV === 'production',
+        httpOnly: true,
+        maxAge: 1000 * 60 * 60 * 24
+      }
+    }));
 
-  app.use(express.json());
-
-  // ─── HEALTH CHECK ────────────────────────────────────────
-  app.get('/', (req, res) => res.json({ status: 'ok', message: 'IntellMeet API running' }));
-  app.get('/health', (req, res) => res.json({ status: 'ok' }));
-
-  // ─── RATE LIMITER ────────────────────────────────────────
-  const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: process.env.NODE_ENV === 'production' ? 10 : 100,
-    message: { message: 'Too many attempts, please try again later.' }
-  });
-
-  // ─── ROUTES ──────────────────────────────────────────────
-  app.use('/api/auth', authLimiter, authRoutes);
-  app.use('/api/meetings', meetingRoutes);
-
-  app.set('redisClient', redisClient);
-
-  // ─── SOCKET.IO ───────────────────────────────────────────
-  const io = new Server(server, {
-    cors: {
+    // ─── CORS ────────────────────────────────────────────────
+    app.use(cors({
       origin: ALLOWED_ORIGINS,
-      methods: ['GET', 'POST'],
       credentials: true,
-    }
-  });
-  setupWebRTC(io, redisClient);
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization']
+    }));
 
-  // ─── MONGODB ─────────────────────────────────────────────
-  mongoose.connect(process.env.MONGO_URI)
-    .then(() => console.log('✅ MongoDB connected'))
-    .catch(err => console.error('❌ MongoDB error:', err));
+    app.use(express.json());
 
-  // ─── START SERVER ─────────────────────────────────────────
-  const PORT = process.env.PORT || 8080;
-  server.listen(PORT, '0.0.0.0', () => console.log(`🚀 Server running on port ${PORT}`));
+    // ─── HEALTH CHECK ────────────────────────────────────────
+    app.get('/', (req, res) => res.json({ status: 'ok', message: 'IntelliMeet API running' }));
+    app.get('/health', (req, res) => res.json({ status: 'ok' }));
+
+    // ─── RATE LIMITER ────────────────────────────────────────
+    const authLimiter = rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: process.env.NODE_ENV === 'production' ? 10 : 100,
+      message: { message: 'Too many attempts, please try again later.' }
+    });
+
+    // ─── ROUTES ──────────────────────────────────────────────
+    app.use('/api/auth', authLimiter, authRoutes);
+    app.use('/api/meetings', meetingRoutes);
+
+    app.set('redisClient', redisClient);
+
+    // ─── SOCKET.IO ───────────────────────────────────────────
+    const io = new Server(server, {
+      cors: {
+        origin: ALLOWED_ORIGINS,
+        methods: ['GET', 'POST'],
+        credentials: true,
+      }
+    });
+    setupWebRTC(io, redisClient);
+
+    // ─── START SERVER — LAST ─────────────────────────────────
+    const PORT = process.env.PORT || 8080;
+    server.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 Server running on port ${PORT}`);
+    });
+
+  } catch (err) {
+    console.error('❌ Startup failed:', err);
+    process.exit(1);
+  }
 
 })();
