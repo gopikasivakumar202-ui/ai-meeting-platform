@@ -14,11 +14,11 @@ const App: React.FC = () => {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/auth/success" element={<AuthSuccess />} />
         <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
         <Route path="/meeting/:id" element={<ProtectedRoute><MeetingRoomPage /></ProtectedRoute>} />
         <Route path="/meeting/:id/summary" element={<ProtectedRoute><PostMeetingSummaryPage /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/login" replace />} />
-        <Route path="/auth/success" element={<AuthSuccess />} />
       </Routes>
     </BrowserRouter>
   );
