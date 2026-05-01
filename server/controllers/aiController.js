@@ -1,39 +1,27 @@
 /**
  * aiController.js  (Week 3 – Day 15 & 16)
- *
- * POST /api/meetings/:id/end-meeting
- *   - Receives transcript from MeetingRoomPage
- *   - Calls OpenAI (or falls back to a stub) to generate:
- *       1. A concise meeting summary
- *       2. A list of action items with owners
- *   - Saves both onto the Meeting document
- *   - Marks meeting status as 'ended'
- *
- * Requires env vars:
- *   OPENAI_API_KEY  (optional – stub used if missing so dev works without a key)
+ * Updated to use Groq API (free tier) instead of Anthropic Claude
  */
 
 const Meeting = require('../models/Meeting');
 
-// ─── Helper: call OpenAI chat completions ────────────────────────────────────
-
-async function callOpenAI(transcript) {
-  if (!process.env.OPENAI_API_KEY) {
-    // ── Stub for development (no API key needed) ────────────────────────────
-    console.warn('⚠️  OPENAI_API_KEY not set – using stub AI response');
+// ─── Helper: call Groq API ────────────────────────────────────────────────────
+async function callGroq(transcript) {
+  if (!process.env.GROQ_API_KEY) {
+    console.warn('⚠️  GROQ_API_KEY not set – using stub AI response');
     return {
-      summary: `[AI STUB] This meeting covered the topics discussed in the transcript. ` +
-               `The team reviewed progress, raised blockers, and agreed on next steps. ` +
-               `(Provide OPENAI_API_KEY to get a real summary.)`,
+      summary:
+        '[AI STUB] This meeting covered the topics discussed in the transcript. ' +
+        'The team reviewed progress, raised blockers, and agreed on next steps. ' +
+        '(Provide GROQ_API_KEY to get a real summary.)',
       actionItems: [
-        'Follow up on items discussed (stub – real items need OPENAI_API_KEY)',
+        'Follow up on items discussed (stub – real items need GROQ_API_KEY)',
         'Schedule next check-in',
       ],
     };
   }
 
-  const prompt = `
-You are an expert meeting assistant. Analyse the following meeting transcript and respond with valid JSON only.
+  const prompt = `You are an expert meeting assistant. Analyse the following meeting transcript and respond with valid JSON only.
 
 JSON format:
 {
@@ -48,18 +36,17 @@ Rules:
 - Return ONLY the JSON object – no markdown fences, no preamble.
 
 TRANSCRIPT:
-${transcript.substring(0, 12000)}   
-`.trim();
+${transcript.substring(0, 12000)}`;
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: {
-      'Content-Type':  'application/json',
-      Authorization:   `Bearer ${process.env.OPENAI_API_KEY}`,
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
     },
     body: JSON.stringify({
-      model:       'gpt-4o-mini',
-      max_tokens:  800,
+      model: 'llama-3.3-70b-versatile',
+      max_tokens: 1024,
       temperature: 0.3,
       messages: [{ role: 'user', content: prompt }],
     }),
@@ -67,7 +54,7 @@ ${transcript.substring(0, 12000)}
 
   if (!response.ok) {
     const err = await response.text();
-    throw new Error(`OpenAI API error ${response.status}: ${err}`);
+    throw new Error(`Groq API error ${response.status}: ${err}`);
   }
 
   const data    = await response.json();
@@ -76,16 +63,16 @@ ${transcript.substring(0, 12000)}
   // Strip accidental markdown fences
   const cleaned = rawText.replace(/```json|```/g, '').trim();
 
+  console.log('🤖 Groq raw response:', cleaned);
+
   try {
     return JSON.parse(cleaned);
   } catch {
-    // If parsing fails return the raw text as summary
     return { summary: rawText, actionItems: [] };
   }
 }
 
 // ─── Controller ──────────────────────────────────────────────────────────────
-
 const endMeeting = async (req, res) => {
   try {
     const { id }         = req.params;
@@ -94,7 +81,6 @@ const endMeeting = async (req, res) => {
     const meeting = await Meeting.findById(id);
     if (!meeting) return res.status(404).json({ message: 'Meeting not found' });
 
-    // Only host or a participant can end the meeting
     const isHost = meeting.host.toString() === req.user._id.toString();
     const isParticipant = meeting.participants.some(
       p => p.user.toString() === req.user._id.toString()
@@ -103,18 +89,20 @@ const endMeeting = async (req, res) => {
       return res.status(403).json({ message: 'Not authorised to end this meeting' });
     }
 
-    // Mark as ended immediately so the frontend can poll
+    // Mark as ended immediately
     meeting.status  = 'ended';
     meeting.endTime = new Date();
     await meeting.save();
 
-    // Respond quickly so the client can navigate to summary page
+    // Respond quickly so client can navigate to summary page
     res.json({ message: 'Meeting ended. AI summary generating…', meeting });
 
-    // ── Generate AI summary asynchronously ──────────────────────────────────
-    if (transcript && transcript.trim().length > 50) {
+    // ── Generate AI summary asynchronously ───────────────────────────────────
+    console.log(`📝 Transcript length received: ${transcript?.length ?? 0} chars`);
+
+    if (transcript && transcript.trim().length > 10) {
       try {
-        const { summary, actionItems } = await callOpenAI(transcript);
+        const { summary, actionItems } = await callGroq(transcript);
         meeting.aiSummary   = summary;
         meeting.actionItems = Array.isArray(actionItems) ? actionItems : [];
         await meeting.save();
@@ -126,6 +114,7 @@ const endMeeting = async (req, res) => {
         await meeting.save();
       }
     } else {
+      console.warn('⚠️ Transcript too short or empty — skipping AI summary');
       meeting.aiSummary   = 'No transcript was provided – summary unavailable.';
       meeting.actionItems = [];
       await meeting.save();
@@ -133,7 +122,6 @@ const endMeeting = async (req, res) => {
 
   } catch (err) {
     console.error('End Meeting Error:', err.message);
-    // Only send error if headers not already sent
     if (!res.headersSent) res.status(500).json({ message: err.message });
   }
 };
