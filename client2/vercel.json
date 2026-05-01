@@ -1,14 +1,12 @@
-
-  {
+{
   "rewrites": [
     {
       "source": "/api/:path*",
       "destination": "https://api-production-b6fe.up.railway.app/api/:path*"
     },
-  
     {
       "source": "/socket.io/:path*",
-      "destination": "https://api-production-19af.up.railway.app/socket.io/:path*"
+      "destination": "https://api-production-b6fe.up.railway.app/socket.io/:path*"
     }
   ]
 }
