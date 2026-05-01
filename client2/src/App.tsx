@@ -6,40 +6,19 @@ import MeetingRoomPage from './pages/MeetingRoomPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import '../src/App.css';
 import PostMeetingSummaryPage from './pages/PostMeetingSummaryPage';
+import AuthSuccess from './pages/AuthSuccess';
 
 const App: React.FC = () => {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Public Routes */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
-
-        {/* Protected Routes */}
-        <Route
-          path="/dashboard"
-          element={
-            <ProtectedRoute>
-              <DashboardPage />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/meeting/:id"
-          element={
-            <ProtectedRoute>
-              <MeetingRoomPage />
-            </ProtectedRoute>
-          }
-        />
-         {/* Week 3 bridge: post-meeting AI summary page */}
-        <Route path="/meeting/:id/summary" element={
-          <ProtectedRoute><PostMeetingSummaryPage /></ProtectedRoute>
-        } />
-
-        {/* Redirect unknown routes */}
+        <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
+        <Route path="/meeting/:id" element={<ProtectedRoute><MeetingRoomPage /></ProtectedRoute>} />
+        <Route path="/meeting/:id/summary" element={<ProtectedRoute><PostMeetingSummaryPage /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route path="/auth/success" element={<AuthSuccess />} />
       </Routes>
     </BrowserRouter>
   );
