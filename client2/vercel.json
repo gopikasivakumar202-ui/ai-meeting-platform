@@ -7,6 +7,10 @@
     {
       "source": "/socket.io/:path*",
       "destination": "https://api-production-b6fe.up.railway.app/socket.io/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }
