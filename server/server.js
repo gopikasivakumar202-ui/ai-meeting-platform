@@ -8,10 +8,12 @@ const rateLimit = require('express-rate-limit');
 const session = require('express-session');
 const { createClient } = require('redis');
 const RedisStore = require('connect-redis').default;
+const passport = require('passport');
 
 const authRoutes = require('./routes/authRoutes');
 const meetingRoutes = require('./routes/meetingRoutes');
 const setupWebRTC = require('./Sockets/webrtc');
+const setupOAuth = require('./auth'); // ← rename to setupOAuth for clarity
 
 const app = express();
 const server = http.createServer(app);
@@ -43,19 +45,6 @@ const ALLOWED_ORIGINS = [
     await mongoose.connect(process.env.MONGO_URI);
     console.log('✅ MongoDB connected');
 
-    // ─── SESSION WITH REDIS STORE ───────────────────────────
-    app.use(session({
-      store: new RedisStore({ client: redisClient }),
-      secret: process.env.SESSION_SECRET || 'intellimeet_secret',
-      resave: false,
-      saveUninitialized: false,
-      cookie: {
-        secure: process.env.NODE_ENV === 'production',
-        httpOnly: true,
-        maxAge: 1000 * 60 * 60 * 24
-      }
-    }));
-
     // ─── CORS ────────────────────────────────────────────────
     app.use(cors({
       origin: ALLOWED_ORIGINS,
@@ -65,6 +54,23 @@ const ALLOWED_ORIGINS = [
     }));
 
     app.use(express.json());
+
+    // ─── SESSION WITH REDIS STORE ───────────────────────────
+    app.use(session({
+      store: new RedisStore({ client: redisClient }),
+      secret: process.env.SESSION_SECRET || 'intellimeet_secret',
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        secure: process.env.NODE_ENV === 'production',
+        httpOnly: true,
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        maxAge: 1000 * 60 * 60 * 24
+      }
+    }));
+
+    // ─── PASSPORT / OAUTH ────────────────────────────────────
+    setupOAuth(app); // ← now after session & cors
 
     // ─── HEALTH CHECK ────────────────────────────────────────
     app.get('/', (req, res) => res.json({ status: 'ok', message: 'IntelliMeet API running' }));
@@ -93,7 +99,7 @@ const ALLOWED_ORIGINS = [
     });
     setupWebRTC(io, redisClient);
 
-    // ─── START SERVER — LAST ─────────────────────────────────
+    // ─── START SERVER ────────────────────────────────────────
     const PORT = process.env.PORT || 8080;
     server.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Server running on port ${PORT}`);
@@ -103,5 +109,4 @@ const ALLOWED_ORIGINS = [
     console.error('❌ Startup failed:', err);
     process.exit(1);
   }
-
 })();
