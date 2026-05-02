@@ -44,6 +44,7 @@ const RTC_CONFIG: RTCConfiguration = {
     },
   ],
 };
+
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || window.location.origin;
 
 export function useWebRTC(meetingCode: string, userId: string, displayName: string) {
@@ -57,9 +58,8 @@ export function useWebRTC(meetingCode: string, userId: string, displayName: stri
   const socketRef      = useRef<Socket | null>(null);
   const peerConns      = useRef<Record<string, RTCPeerConnection>>({});
   const streamRef      = useRef<MediaStream | null>(null);
-  const recognitionRef = useRef<SpeechRecognition| null>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
 
-  // ── Helper: create one RTCPeerConnection ─────────────────────────────────────
   const createPeerConnection = useCallback(
     (remoteId: string, remoteName: string, socket: Socket): RTCPeerConnection => {
       const pc = new RTCPeerConnection(RTC_CONFIG);
@@ -102,51 +102,55 @@ export function useWebRTC(meetingCode: string, userId: string, displayName: stri
     []
   );
 
-  // ── Helper: start Web Speech API transcription ────────────────────────────────
-const startTranscription = useCallback((speaker: string) => {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const startTranscription = useCallback((speaker: string) => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      console.warn('SpeechRecognition not supported in this browser');
+      return;
+    }
+    const recognition = new SR();
+    recognition.continuous     = true;
+    recognition.interimResults = false;
+    recognition.lang           = 'en-US';
 
-  if (!SR) {
-    console.warn('SpeechRecognition not supported in this browser');
-    return;
-  }
-
-  const recognition = new SR();
-  recognition.continuous     = true;
-  recognition.interimResults = false;
-  recognition.lang           = 'en-US';
-
-  recognition.onresult = (event: SpeechRecognitionEvent) => {
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      if (event.results[i].isFinal) {
-        const text = event.results[i][0].transcript.trim();
-        if (text) {
-          setTranscript((prev) => [
-            ...prev,
-            { speaker, text, timestamp: new Date() },
-          ]);
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) {
+          const text = event.results[i][0].transcript.trim();
+          if (text) {
+            setTranscript((prev) => [
+              ...prev,
+              { speaker, text, timestamp: new Date() },
+            ]);
+          }
         }
       }
-    }
-  };
+    };
 
-  recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
-    if (e.error !== 'no-speech') console.error('Speech error:', e.error);
-  };
+    recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
+      if (e.error !== 'no-speech') console.error('Speech error:', e.error);
+    };
 
-  recognition.onend = () => {
-    try { recognition.start(); } catch (_) { /* already stopped */ }
-  };
+    recognition.onend = () => {
+      try { recognition.start(); } catch (_) { /* already stopped */ }
+    };
 
-  recognition.start();
-  recognitionRef.current = recognition;
-}, []);
+    recognition.start();
+    recognitionRef.current = recognition;
+  }, []);
 
-  // ── Main effect: init stream + socket ────────────────────────────────────────
   useEffect(() => {
+    // Skip if userId is empty
+    if (!userId) {
+      console.warn('⚠️ userId is empty, skipping WebRTC init');
+      return;
+    }
+
     let mounted = true;
 
     const init = async () => {
+      console.log('🚀 Initializing WebRTC with userId:', userId, 'displayName:', displayName);
+
       // Get camera + mic
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -169,12 +173,14 @@ const startTranscription = useCallback((speaker: string) => {
       socketRef.current = socket;
 
       socket.on('connect', () => {
+        console.log('🔌 Socket connected, joining room:', meetingCode, 'userId:', userId);
         socket.emit('join-room', { meetingCode, userId, displayName });
       });
 
       socket.on(
         'user-joined',
         async ({ userId: remoteId, displayName: remoteName }: { userId: string; displayName: string }) => {
+          console.log('🔔 user-joined event received:', remoteId, remoteName);
           if (!mounted) return;
           const pc    = createPeerConnection(remoteId, remoteName, socket);
           const offer = await pc.createOffer();
@@ -186,6 +192,7 @@ const startTranscription = useCallback((speaker: string) => {
       socket.on(
         'offer',
         async ({ offer, from }: { offer: RTCSessionDescriptionInit; from: string }) => {
+          console.log('📨 Received offer from:', from);
           if (!mounted) return;
           let pc = peerConns.current[from];
           if (!pc) pc = createPeerConnection(from, from, socket);
@@ -199,6 +206,7 @@ const startTranscription = useCallback((speaker: string) => {
       socket.on(
         'answer',
         async ({ answer, from }: { answer: RTCSessionDescriptionInit; from: string }) => {
+          console.log('📨 Received answer from:', from);
           const pc = peerConns.current[from];
           if (pc) await pc.setRemoteDescription(new RTCSessionDescription(answer));
         }
@@ -253,7 +261,6 @@ const startTranscription = useCallback((speaker: string) => {
     };
   }, [meetingCode, userId, displayName, createPeerConnection, startTranscription]);
 
-  // ── Controls ──────────────────────────────────────────────────────────────────
   const toggleVideo = useCallback(() => {
     streamRef.current?.getVideoTracks().forEach((t) => { t.enabled = !t.enabled; });
     setVideoOn((v) => !v);
@@ -335,4 +342,5 @@ const startTranscription = useCallback((speaker: string) => {
     leaveMeeting,
   };
 }
+
 export default useWebRTC;
