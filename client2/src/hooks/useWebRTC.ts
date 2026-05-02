@@ -21,6 +21,8 @@ export interface TranscriptLine {
 
 const RTC_CONFIG: RTCConfiguration = {
   iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun.relay.metered.ca:80' },
     {
       urls: 'turn:global.relay.metered.ca:80',
@@ -60,10 +62,22 @@ export function useWebRTC(meetingCode: string, userId: string, displayName: stri
   const streamRef      = useRef<MediaStream | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
 
+  // ✅ FIX 1: Cache display names so offer/answer handlers can resolve them
+  const peerNames = useRef<Record<string, string>>({});
+
   const createPeerConnection = useCallback(
     (remoteId: string, remoteName: string, socket: Socket): RTCPeerConnection => {
+      // ✅ FIX 2: Avoid duplicate peer connections
+      if (peerConns.current[remoteId]) {
+        console.warn(`[${remoteId}] PeerConnection already exists, reusing.`);
+        return peerConns.current[remoteId];
+      }
+
       const pc = new RTCPeerConnection(RTC_CONFIG);
       peerConns.current[remoteId] = pc;
+
+      // ✅ FIX 3: Cache the name at creation time
+      peerNames.current[remoteId] = remoteName;
 
       streamRef.current?.getTracks().forEach((track) => {
         pc.addTrack(track, streamRef.current!);
@@ -89,9 +103,16 @@ export function useWebRTC(meetingCode: string, userId: string, displayName: stri
       };
 
       pc.onconnectionstatechange = () => {
-        console.log(`[${remoteName}] connection: ${pc.connectionState}`);
+        console.log(`[${remoteName}] connection state: ${pc.connectionState}`);
+
+        // ✅ FIX 4: Clean up failed/closed connections so they can reconnect
+        if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+          console.warn(`[${remoteName}] connection ${pc.connectionState}, cleaning up.`);
+          delete peerConns.current[remoteId];
+        }
       };
 
+      // ✅ FIX 5: Add peer to state immediately (with null stream) so UI shows them
       setPeers((prev) => {
         if (prev.find((p) => p.userId === remoteId)) return prev;
         return [...prev, { userId: remoteId, displayName: remoteName, stream: null }];
@@ -140,7 +161,6 @@ export function useWebRTC(meetingCode: string, userId: string, displayName: stri
   }, []);
 
   useEffect(() => {
-    // Skip if userId is empty
     if (!userId) {
       console.warn('⚠️ userId is empty, skipping WebRTC init');
       return;
@@ -149,7 +169,7 @@ export function useWebRTC(meetingCode: string, userId: string, displayName: stri
     let mounted = true;
 
     const init = async () => {
-      console.log('🚀 Initializing WebRTC with userId:', userId, 'displayName:', displayName);
+      console.log('🚀 Initializing WebRTC | userId:', userId, '| displayName:', displayName);
 
       // Get camera + mic
       try {
@@ -168,47 +188,121 @@ export function useWebRTC(meetingCode: string, userId: string, displayName: stri
         console.warn('Camera/mic unavailable – proceeding without media');
       }
 
-      // Connect Socket.io
-      const socket = io(SOCKET_URL, { auth: { userId, displayName } });
+      // Connect Socket.io — send displayName in auth so server knows who we are
+      const socket = io(SOCKET_URL, {
+        auth: { userId, displayName },
+        // ✅ FIX 6: Reconnection settings to handle flaky connections
+        reconnection: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000,
+      });
       socketRef.current = socket;
 
       socket.on('connect', () => {
-        console.log('🔌 Socket connected, joining room:', meetingCode, 'userId:', userId);
+        console.log('🔌 Socket connected | joining room:', meetingCode);
         socket.emit('join-room', { meetingCode, userId, displayName });
       });
 
+      socket.on('connect_error', (err) => {
+        console.error('❌ Socket connection error:', err.message);
+      });
+
+      // ✅ FIX 7: user-joined — cache name before creating peer connection
       socket.on(
         'user-joined',
-        async ({ userId: remoteId, displayName: remoteName }: { userId: string; displayName: string }) => {
-          console.log('🔔 user-joined event received:', remoteId, remoteName);
+        async ({
+          userId: remoteId,
+          displayName: remoteName,
+        }: {
+          userId: string;
+          displayName: string;
+        }) => {
+          console.log('🔔 user-joined:', remoteId, remoteName);
           if (!mounted) return;
+
+          // Cache the display name
+          peerNames.current[remoteId] = remoteName;
+
           const pc    = createPeerConnection(remoteId, remoteName, socket);
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
-          socket.emit('offer', { meetingCode, offer, to: remoteId });
+          // ✅ FIX 8: Send our displayName with the offer so the receiver knows who we are
+          socket.emit('offer', { meetingCode, offer, to: remoteId, displayName });
         }
       );
 
+      // ✅ FIX 9: offer handler — resolve display name from event OR cache
       socket.on(
         'offer',
-        async ({ offer, from }: { offer: RTCSessionDescriptionInit; from: string }) => {
-          console.log('📨 Received offer from:', from);
+        async ({
+          offer,
+          from,
+          displayName: remoteName,
+        }: {
+          offer: RTCSessionDescriptionInit;
+          from: string;
+          displayName?: string;
+        }) => {
+          console.log('📨 Received offer from:', from, '| name:', remoteName);
           if (!mounted) return;
+
+          // Resolve the best available name
+          const resolvedName = remoteName || peerNames.current[from] || from;
+          peerNames.current[from] = resolvedName;
+
           let pc = peerConns.current[from];
-          if (!pc) pc = createPeerConnection(from, from, socket);
-          await pc.setRemoteDescription(new RTCSessionDescription(offer));
+          if (!pc) pc = createPeerConnection(from, resolvedName, socket);
+
+          // ✅ FIX 10: Guard against invalid state before setting remote description
+          if (pc.signalingState !== 'stable' && pc.signalingState !== 'have-local-offer') {
+            try {
+              await pc.setRemoteDescription(new RTCSessionDescription(offer));
+            } catch (e) {
+              console.error('setRemoteDescription (offer) failed:', e);
+              return;
+            }
+          } else {
+            await pc.setRemoteDescription(new RTCSessionDescription(offer));
+          }
+
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
-          socket.emit('answer', { to: from, answer });
+          // ✅ FIX 11: Send our displayName with the answer too
+          socket.emit('answer', { to: from, answer, displayName });
         }
       );
 
+      // ✅ FIX 12: answer handler — update peer name if we get it here
       socket.on(
         'answer',
-        async ({ answer, from }: { answer: RTCSessionDescriptionInit; from: string }) => {
+        async ({
+          answer,
+          from,
+          displayName: remoteName,
+        }: {
+          answer: RTCSessionDescriptionInit;
+          from: string;
+          displayName?: string;
+        }) => {
           console.log('📨 Received answer from:', from);
           const pc = peerConns.current[from];
-          if (pc) await pc.setRemoteDescription(new RTCSessionDescription(answer));
+          if (!pc) return;
+
+          // Update display name if provided and not already set correctly
+          if (remoteName && peerNames.current[from] !== remoteName) {
+            peerNames.current[from] = remoteName;
+            setPeers((prev) =>
+              prev.map((p) =>
+                p.userId === from ? { ...p, displayName: remoteName } : p
+              )
+            );
+          }
+
+          try {
+            await pc.setRemoteDescription(new RTCSessionDescription(answer));
+          } catch (e) {
+            console.error('setRemoteDescription (answer) failed:', e);
+          }
         }
       );
 
@@ -217,14 +311,20 @@ export function useWebRTC(meetingCode: string, userId: string, displayName: stri
         async ({ candidate, from }: { candidate: RTCIceCandidateInit; from: string }) => {
           const pc = peerConns.current[from];
           if (pc && candidate) {
-            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            try {
+              await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            } catch (e) {
+              console.error('addIceCandidate failed:', e);
+            }
           }
         }
       );
 
       socket.on('user-left', ({ userId: leftId }: { userId: string }) => {
+        console.log('👋 user-left:', leftId);
         peerConns.current[leftId]?.close();
         delete peerConns.current[leftId];
+        delete peerNames.current[leftId];
         setPeers((prev) => prev.filter((p) => p.userId !== leftId));
       });
 
@@ -244,7 +344,7 @@ export function useWebRTC(meetingCode: string, userId: string, displayName: stri
       });
 
       socket.on('room:state', ({ participants }: { participants: string[] }) => {
-        console.log('Existing participants:', participants);
+        console.log('📋 Existing participants:', participants);
       });
     };
 
@@ -257,6 +357,7 @@ export function useWebRTC(meetingCode: string, userId: string, displayName: stri
       socketRef.current?.disconnect();
       Object.values(peerConns.current).forEach((pc) => pc.close());
       peerConns.current = {};
+      peerNames.current = {};
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
   }, [meetingCode, userId, displayName, createPeerConnection, startTranscription]);
@@ -325,6 +426,7 @@ export function useWebRTC(meetingCode: string, userId: string, displayName: stri
     socketRef.current?.disconnect();
     Object.values(peerConns.current).forEach((pc) => pc.close());
     peerConns.current = {};
+    peerNames.current = {};
     streamRef.current?.getTracks().forEach((t) => t.stop());
   }, [meetingCode, userId]);
 
