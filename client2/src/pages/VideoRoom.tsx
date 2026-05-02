@@ -1,8 +1,7 @@
 import { useEffect, useRef } from "react";
 import { io, Socket } from "socket.io-client";
 
-const socket: Socket = io("http://localhost:4000");
-
+const socket: Socket = io(import.meta.env.VITE_SOCKET_URL || "https://api-production-b6fe.up.railway.app");
 const servers = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },

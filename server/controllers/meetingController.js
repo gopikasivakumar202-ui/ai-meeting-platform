@@ -10,6 +10,8 @@ const createMeeting = async (req, res) => {
       description,
       host: req.user._id,
       startTime: startTime || Date.now(),
+      // ✅ FIX: Add host as first participant automatically
+      participants: [{ user: req.user._id }],
     });
 
     res.status(201).json(meeting);
@@ -58,7 +60,6 @@ const updateMeeting = async (req, res) => {
     const meeting = await Meeting.findById(req.params.id);
     if (!meeting) return res.status(404).json({ message: 'Meeting not found' });
 
-    // ✅ Only host can update
     if (meeting.host.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: 'Only host can update meeting' });
     }
@@ -82,7 +83,6 @@ const deleteMeeting = async (req, res) => {
     const meeting = await Meeting.findById(req.params.id);
     if (!meeting) return res.status(404).json({ message: 'Meeting not found' });
 
-    // ✅ Only host can delete
     if (meeting.host.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: 'Only host can delete meeting' });
     }
