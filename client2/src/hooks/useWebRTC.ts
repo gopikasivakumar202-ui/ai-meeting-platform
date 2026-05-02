@@ -26,7 +26,7 @@ const RTC_CONFIG: RTCConfiguration = {
   ],
 };
 
-const SOCKET_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:5002';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || window.location.origin;
 
 export function useWebRTC(meetingCode: string, userId: string, displayName: string) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -317,3 +317,4 @@ const startTranscription = useCallback((speaker: string) => {
     leaveMeeting,
   };
 }
+export default useWebRTC;
