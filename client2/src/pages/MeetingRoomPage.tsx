@@ -24,7 +24,7 @@ import VideoTile from '../components/VideoTile';
 
 export default function MeetingRoomPage() {
   const { id } = useParams<{ id: string }>();
-  const { user, token } = useAuthStore();
+  const { user, token,setUser } = useAuthStore();
   const navigate = useNavigate();
 
   const meetingCode = id?.slice(-8).toUpperCase() ?? 'UNKNOWN';
@@ -46,6 +46,17 @@ export default function MeetingRoomPage() {
     user?._id ?? '',
     user?.name ?? 'Guest',
   );
+  // Add this useEffect at the top of MeetingRoomPage
+useEffect(() => {
+  if (!user && token) {
+    fetch('/api/auth/me', {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    .then(r => r.json())
+    .then(data => setUser(data))
+    .catch(() => navigate('/login'));
+  }
+}, [token]);
 
   // ── Panel visibility ──────────────────────────────────────────────────────
   const [showChat,       setShowChat]       = useState(false);
