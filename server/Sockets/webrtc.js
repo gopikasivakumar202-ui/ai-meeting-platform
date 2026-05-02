@@ -1,18 +1,20 @@
 /**
- * webrtc.js  (updated – Week 2/3 bridge)
+ * webrtc.js  (fixed)
  *
- * Changes from original:
- *  - Added real-time chat relay (send-message event)
- *    so MeetingRoomPage's Socket.io chat actually works.
- *  - send-message persists a Message document and broadcasts
- *    new-message to all participants in the room.
- *
- * Replace Zidio/server/Sockets/webrtc.js with this file.
+ * Fixes:
+ *  1. offer/answer now forward displayName so client can resolve peer names
+ *  2. Signaling (offer/answer/ice-candidate) now routes by userId via
+ *     a userSocketMap — previously used socket.id as the "to" target
+ *     but the client sends userId, causing messages to never arrive.
+ *  3. ice-candidate routing fixed the same way.
  */
 
 const Message = require('../models/Message');
 
 module.exports = function setupWebRTC(io, redisClient) {
+
+  // ✅ FIX 1: Map userId → socket.id so we can route by userId
+  const userSocketMap = new Map(); // userId -> socket.id
 
   io.on('connection', (socket) => {
     console.log('🔌 Client connected:', socket.id);
@@ -24,47 +26,80 @@ module.exports = function setupWebRTC(io, redisClient) {
       socket.data.displayName = displayName;
       socket.data.meetingCode = meetingCode;
 
+      // ✅ FIX 2: Register userId -> socket.id mapping
+      userSocketMap.set(userId, socket.id);
+
       // Cache participant in Redis
       await redisClient.sAdd(`room:${meetingCode}:participants`, userId);
       await redisClient.expire(`room:${meetingCode}:participants`, 3600);
 
-      // Tell others someone joined
+      // Tell others someone joined (with displayName)
       socket.to(meetingCode).emit('user-joined', { userId, displayName });
 
       // Send current participant list to the joining user
       const participants = await redisClient.sMembers(`room:${meetingCode}:participants`);
       socket.emit('room:state', { meetingCode, participants });
 
-      console.log(`✅ ${displayName} joined room ${meetingCode}`);
+      console.log(`✅ ${displayName} (${userId}) joined room ${meetingCode}`);
     });
 
     // ── Leave room ────────────────────────────────────────────────────────────
     socket.on('leave-room', async ({ meetingCode, userId }) => {
       socket.leave(meetingCode);
+      userSocketMap.delete(userId);
       await redisClient.sRem(`room:${meetingCode}:participants`, userId);
       io.to(meetingCode).emit('user-left', { userId });
     });
 
     // ── WebRTC signaling ──────────────────────────────────────────────────────
-    socket.on('offer', ({ meetingCode, offer, to }) => {
-      io.to(to).emit('offer', { offer, from: socket.id });
+
+    // ✅ FIX 3: Route offer by userId (not socket.id), forward displayName
+    socket.on('offer', ({ meetingCode, offer, to, displayName }) => {
+      const targetSocketId = userSocketMap.get(to);
+      if (!targetSocketId) {
+        console.warn(`⚠️ offer: no socket found for userId ${to}`);
+        return;
+      }
+      io.to(targetSocketId).emit('offer', {
+        offer,
+        from:        socket.data.userId || socket.id,
+        displayName: socket.data.displayName || displayName || 'Unknown',
+      });
     });
 
-    socket.on('answer', ({ to, answer }) => {
-      io.to(to).emit('answer', { answer, from: socket.id });
+    // ✅ FIX 4: Route answer by userId, forward displayName
+    socket.on('answer', ({ to, answer, displayName }) => {
+      const targetSocketId = userSocketMap.get(to);
+      if (!targetSocketId) {
+        console.warn(`⚠️ answer: no socket found for userId ${to}`);
+        return;
+      }
+      io.to(targetSocketId).emit('answer', {
+        answer,
+        from:        socket.data.userId || socket.id,
+        displayName: socket.data.displayName || displayName || 'Unknown',
+      });
     });
 
+    // ✅ FIX 5: Route ice-candidate by userId
     socket.on('ice-candidate', ({ to, candidate }) => {
-      io.to(to).emit('ice-candidate', { candidate, from: socket.id });
+      const targetSocketId = userSocketMap.get(to);
+      if (!targetSocketId) {
+        console.warn(`⚠️ ice-candidate: no socket found for userId ${to}`);
+        return;
+      }
+      io.to(targetSocketId).emit('ice-candidate', {
+        candidate,
+        from: socket.data.userId || socket.id,
+      });
     });
 
-    // ── Real-time chat (Week 2/3 bridge) ──────────────────────────────────────
+    // ── Real-time chat ────────────────────────────────────────────────────────
     socket.on('send-message', async ({ roomId, content }) => {
       if (!content?.trim()) return;
 
       const senderName = socket.data.displayName || 'Anonymous';
 
-      // Persist to MongoDB (Message model already exists in codebase)
       try {
         await Message.create({
           room:    roomId,
@@ -75,7 +110,6 @@ module.exports = function setupWebRTC(io, redisClient) {
         console.error('Chat persist error:', err.message);
       }
 
-      // Broadcast to everyone in the room (including sender)
       io.to(roomId).emit('new-message', {
         sender:    senderName,
         content:   content.trim(),
@@ -83,7 +117,7 @@ module.exports = function setupWebRTC(io, redisClient) {
       });
     });
 
-    // ── Typing indicators ──────────────────────────────────────────────────────
+    // ── Typing indicators ─────────────────────────────────────────────────────
     socket.on('typing-start', ({ roomId }) => {
       socket.to(roomId).emit('user-typing', { user: socket.data.displayName });
     });
@@ -92,8 +126,13 @@ module.exports = function setupWebRTC(io, redisClient) {
       socket.to(roomId).emit('user-stopped-typing', { user: socket.data.displayName });
     });
 
-    // ── Auto-cleanup on disconnect ─────────────────────────────────────────────
+    // ── Auto-cleanup on disconnect ────────────────────────────────────────────
     socket.on('disconnecting', async () => {
+      // Remove from userSocketMap
+      if (socket.data.userId) {
+        userSocketMap.delete(socket.data.userId);
+      }
+
       for (const room of socket.rooms) {
         if (room === socket.id) continue;
         await redisClient.sRem(`room:${room}:participants`, socket.data.userId || socket.id);
