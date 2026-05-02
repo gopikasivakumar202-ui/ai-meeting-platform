@@ -129,9 +129,13 @@ export function useWebRTC(meetingCode: string, userId: string, displayName: stri
       console.warn('SpeechRecognition not supported in this browser');
       return;
     }
+
+    let stopped = false; // flag to prevent restart after intentional stop
+    let restartTimer: ReturnType<typeof setTimeout> | null = null;
+
     const recognition = new SR();
     recognition.continuous     = true;
-    recognition.interimResults = false;
+    recognition.interimResults = true;
     recognition.lang           = 'en-US';
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
@@ -149,14 +153,45 @@ export function useWebRTC(meetingCode: string, userId: string, displayName: stri
     };
 
     recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
-      if (e.error !== 'no-speech') console.error('Speech error:', e.error);
+      console.warn('Speech error:', e.error);
+      // 'aborted' means something interrupted it (tab focus, another recognition instance)
+      // 'no-speech' is normal silence — both should restart
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        // Mic permission denied — don't retry
+        console.error('🎙️ Mic permission denied — transcript disabled');
+        stopped = true;
+      }
+      // For all other errors (aborted, no-speech, network, audio-capture)
+      // let onend handle the restart
     };
 
     recognition.onend = () => {
-      try { recognition.start(); } catch (_) { /* already stopped */ }
+      if (stopped) return;
+      // Delay restart slightly to avoid rapid-fire restart loops
+      restartTimer = setTimeout(() => {
+        if (stopped) return;
+        try {
+          recognition.start();
+          console.log('🔄 Transcription restarted');
+        } catch (e) {
+          // Already started — ignore
+        }
+      }, 300);
     };
 
-    recognition.start();
+    // Store stop function so we can cleanly stop on unmount
+    (recognition as any)._stop = () => {
+      stopped = true;
+      if (restartTimer) clearTimeout(restartTimer);
+      try { recognition.stop(); } catch (_) {}
+    };
+
+    try {
+      recognition.start();
+    } catch (e) {
+      console.error('Failed to start transcription:', e);
+    }
+
     recognitionRef.current = recognition;
   }, []);
 
@@ -352,7 +387,8 @@ export function useWebRTC(meetingCode: string, userId: string, displayName: stri
 
     return () => {
       mounted = false;
-      recognitionRef.current?.stop();
+      const rec = recognitionRef.current as any;
+      if (rec?._stop) rec._stop(); else recognitionRef.current?.stop();
       socketRef.current?.emit('leave-room', { meetingCode, userId });
       socketRef.current?.disconnect();
       Object.values(peerConns.current).forEach((pc) => pc.close());
@@ -421,7 +457,8 @@ export function useWebRTC(meetingCode: string, userId: string, displayName: stri
   );
 
   const leaveMeeting = useCallback(() => {
-    recognitionRef.current?.stop();
+    const rec = recognitionRef.current as any;
+    if (rec?._stop) rec._stop(); else recognitionRef.current?.stop();
     socketRef.current?.emit('leave-room', { meetingCode, userId });
     socketRef.current?.disconnect();
     Object.values(peerConns.current).forEach((pc) => pc.close());
