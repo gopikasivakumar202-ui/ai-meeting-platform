@@ -21,7 +21,6 @@ import { useAuthStore } from '../store/authStore';
 import { useWebRTC } from '../hooks/useWebRTC';
 import VideoTile from '../components/VideoTile';
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:5002';
 
 export default function MeetingRoomPage() {
   const { id } = useParams<{ id: string }>();
@@ -75,7 +74,7 @@ export default function MeetingRoomPage() {
       .join('\n');
 
     try {
-      await fetch(`${SERVER_URL}/api/meetings/${id}/end-meeting`, {
+await fetch(`/api/meetings/${id}/end-meeting`, {
         method: 'POST',
         headers: {
           'Content-Type':  'application/json',

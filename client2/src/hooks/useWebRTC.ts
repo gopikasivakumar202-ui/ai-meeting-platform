@@ -21,11 +21,29 @@ export interface TranscriptLine {
 
 const RTC_CONFIG: RTCConfiguration = {
   iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun.relay.metered.ca:80' },
+    {
+      urls: 'turn:global.relay.metered.ca:80',
+      username: 'b6fce5050ba0c847926524eb',
+      credential: 'yn5qJ1odWWeQqlAX',
+    },
+    {
+      urls: 'turn:global.relay.metered.ca:80?transport=tcp',
+      username: 'b6fce5050ba0c847926524eb',
+      credential: 'yn5qJ1odWWeQqlAX',
+    },
+    {
+      urls: 'turn:global.relay.metered.ca:443',
+      username: 'b6fce5050ba0c847926524eb',
+      credential: 'yn5qJ1odWWeQqlAX',
+    },
+    {
+      urls: 'turns:global.relay.metered.ca:443?transport=tcp',
+      username: 'b6fce5050ba0c847926524eb',
+      credential: 'yn5qJ1odWWeQqlAX',
+    },
   ],
 };
-
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || window.location.origin;
 
 export function useWebRTC(meetingCode: string, userId: string, displayName: string) {
